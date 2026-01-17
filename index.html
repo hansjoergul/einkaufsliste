@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Einkaufsliste App</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        /* --- CSS VARIABLES & RESET --- */
+        :root {
+            --primary-color: #2E7D32; /* Dunkelgrün */
+            --primary-light: #4CAF50;
+            --bg-color: #f4f4f9;
+            --card-bg: #ffffff;
+            --text-color: #333;
+            --gray-text: #777;
+            --border-color: #ddd;
+            --active-item-bg: #e0e0e0;
+            --danger-color: #d32f2f;
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            padding-bottom: 90px; /* Platz für Footer */
+        }
+
+        /* --- HEADER --- */
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 15px;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+
+        h1 { margin: 0; font-size: 1.2rem; }
+
+        /* --- TABS --- */
+        .tabs {
+            display: flex;
+            background: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 15px 10px;
+            border: none;
+            background: none;
+            font-weight: 600;
+            color: var(--gray-text);
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab-btn.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+
+        /* --- SEARCH --- */
+        .search-container {
+            padding: 10px;
+            background: white;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        #search-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 1rem;
+        }
+
+        /* --- FILTERS (Categories) --- */
+        .filter-container {
+            padding: 10px;
+            background: white;
+            overflow-x: auto;
+            white-space: nowrap;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+        }
+
+        .filter-label {
+            display: inline-flex;
+            align-items: center;
+            margin-right: 15px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            padding: 5px 8px;
+            border-radius: 15px;
+            background: #eee;
+        }
+        
+        .filter-label.master {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .filter-label input { margin-right: 5px; }
+
+        /* --- CONTENT AREAS --- */
+        .view-section {
+            display: none;
+            padding: 10px;
+        }
+
+        .view-section.active {
+            display: block;
+        }
+
+        /* --- PRODUCT GRID --- */
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 10px;
+        }
+
+        .product-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            transition: background-color 0.2s;
+        }
+
+        .product-card.in-cart {
+            background-color: #e8e8e8;
+            border-color: #aaa;
+        }
+
+        .card-header { margin-bottom: 10px; }
+
+        .prod-icon { font-size: 1.5rem; display: block; margin-bottom: 5px; }
+
+        .prod-name {
+            font-weight: bold;
+            font-size: 1rem;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .prod-meta { font-size: 0.75rem; color: var(--gray-text); }
+
+        .prod-side {
+            display: inline-block;
+            background: #eee;
+            padding: 2px 5px;
+            border-radius: 4px;
+            margin-top: 4px;
+            font-size: 0.7rem;
+            font-weight: bold;
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: auto;
+        }
+
+        .btn-ctrl {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: none;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+
+        .btn-minus { background-color: #ddd; color: #333; }
+        .btn-plus { background-color: var(--primary-light); color: white; }
+        
+        .qty-display {
+            font-weight: bold;
+            font-size: 1.1rem;
+            width: 30px;
+            text-align: center;
+        }
+
+        /* --- CATEGORY VIEW --- */
+        .cat-group { margin-bottom: 25px; }
+        .cat-title {
+            font-size: 1.1rem;
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--primary-color);
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            font-weight: bold;
+        }
+
+        /* --- SHOPPING LIST MODE --- */
+        .shopping-list-item {
+            background: white;
+            padding: 15px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .shopping-list-item.checked .item-details {
+            text-decoration: line-through;
+            color: var(--gray-text);
+            opacity: 0.6;
+        }
+
+        .item-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        /* Checkbox Custom Styling for App View */
+        .checkbox-custom {
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            accent-color: var(--primary-color);
+            transform: scale(1.2);
+        }
+
+        .item-text { display: flex; flex-direction: column; }
+        .item-name-row { font-size: 1rem; font-weight: 500; }
+        .item-info-row { font-size: 0.8rem; color: var(--gray-text); }
+
+        .btn-pdf {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            background-color: var(--primary-color);
+            color: white;
+            text-align: center;
+            border: none;
+            font-size: 1rem;
+            margin-top: 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        
+        .btn-pdf:active { transform: translateY(2px); }
+
+        /* Helper */
+        .hidden { display: none !important; }
+        .empty-msg { text-align: center; color: var(--gray-text); margin-top: 30px; }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Einkaufsliste App</h1>
+    </header>
+
+    <nav class="tabs">
+        <button class="tab-btn active" onclick="app.switchTab('all')">Alle Produkte</button>
+        <button class="tab-btn" onclick="app.switchTab('cats')">Kategorien</button>
+        <button class="tab-btn" onclick="app.switchTab('shop')">Einkaufen</button>
+    </nav>
+
+    <div id="search-wrapper" class="search-container">
+        <input type="text" id="search-input" placeholder="Suche (z.B. 'Bana')..." oninput="app.handleSearch()">
+    </div>
+
+    <section id="view-all" class="view-section active">
+        <div id="grid-container" class="product-grid">
+            </div>
+    </section>
+
+    <section id="view-cats" class="view-section">
+        <div id="cat-filters" class="filter-container">
+            </div>
+        <div id="cat-list-container">
+            </div>
+    </section>
+
+    <section id="view-shop" class="view-section">
+        <div id="shopping-list-container">
+            </div>
+        <button class="btn-pdf" onclick="app.exportPDF()">📄 Schönes PDF exportieren</button>
+    </section>
+
+    <script>
+        /**
+         * DATENKATALOG
+         * Mit Icons (Emojis) erweitert
+         */
+        const CATALOG = [
+            { name: "Äpfel", category: "Obst & Gemüse", side: "W", icon: "🍎" },
+            { name: "Bananen", category: "Obst & Gemüse", side: "W", icon: "🍌" },
+            { name: "Karotten", category: "Obst & Gemüse", side: "W", icon: "🥕" },
+            { name: "Kartoffeln", category: "Obst & Gemüse", side: "W", icon: "🥔" },
+            { name: "Milch", category: "Milchprodukte", side: "O", icon: "🥛" },
+            { name: "Käse", category: "Milchprodukte", side: "O", icon: "🧀" },
+            { name: "Joghurt", category: "Milchprodukte", side: "O", icon: "🍦" },
+            { name: "Brot", category: "Backwaren", side: "W", icon: "🍞" },
+            { name: "Toast", category: "Backwaren", side: "W", icon: "🥪" },
+            { name: "Nudeln", category: "Vorratsschrank", side: "O", icon: "🍝" },
+            { name: "Reis", category: "Vorratsschrank", side: "O", icon: "🍚" },
+            { name: "Tomatensauce", category: "Vorratsschrank", side: "O", icon: "🥫" },
+            { name: "Schokolade", category: "Süßigkeiten", side: "W", icon: "🍫" },
+            { name: "Chips", category: "Süßigkeiten", side: "W", icon: "🥨" },
+            { name: "Wasser", category: "Getränke", side: "O", icon: "💧" },
+            { name: "Saft", category: "Getränke", side: "O", icon: "🧃" },
+            { name: "Toilettenpapier", category: "Haushalt", side: "O", icon: "🧻" },
+            { name: "Waschmittel", category: "Haushalt", side: "O", icon: "🧼" }
+        ];
+
+        /**
+         * APP LOGIK
+         */
+        const app = {
+            cart: {}, 
+            activeTab: 'all',
+            searchTerm: '',
+            activeCategories: [], 
+            allCats: [],
+
+            init: function() {
+                const storedCart = localStorage.getItem('shoppingCart');
+                if (storedCart) {
+                    this.cart = JSON.parse(storedCart);
+                }
+
+                this.allCats = [...new Set(CATALOG.map(p => p.category))];
+                this.activeCategories = [...this.allCats]; 
+
+                this.renderCategoryFilters();
+                this.renderAll();
+            },
+
+            save: function() {
+                localStorage.setItem('shoppingCart', JSON.stringify(this.cart));
+                this.renderAll();
+            },
+
+            switchTab: function(tabName) {
+                this.activeTab = tabName;
+                document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+                event.target.classList.add('active');
+                document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+                document.getElementById('view-' + tabName).classList.add('active');
+
+                const searchWrapper = document.getElementById('search-wrapper');
+                if (tabName === 'shop') {
+                    searchWrapper.classList.add('hidden');
+                    this.renderShoppingList();
+                } else {
+                    searchWrapper.classList.remove('hidden');
+                    if (tabName === 'all') this.renderProductGrid();
+                    if (tabName === 'cats') this.renderCategoryView();
+                }
+            },
+
+            handleSearch: function() {
+                this.searchTerm = document.getElementById('search-input').value.toLowerCase();
+                if (this.activeTab === 'all') this.renderProductGrid();
+                if (this.activeTab === 'cats') this.renderCategoryView();
+            },
+
+            updateQty: function(prodName, delta) {
+                if (!this.cart[prodName]) this.cart[prodName] = { qty: 0, checked: false };
+                let newQty = this.cart[prodName].qty + delta;
+                
+                if (newQty > 5) return; 
+                if (newQty <= 0) delete this.cart[prodName];
+                else this.cart[prodName].qty = newQty;
+
+                this.save();
+                if (this.activeTab === 'shop') this.renderShoppingList();
+            },
+
+            toggleCheck: function(prodName) {
+                if (this.cart[prodName]) {
+                    this.cart[prodName].checked = !this.cart[prodName].checked;
+                    this.save();
+                    this.renderShoppingList();
+                }
+            },
+
+            // --- FILTERS MIT "ALLE"-CHECKBOX ---
+            renderCategoryFilters: function() {
+                const container = document.getElementById('cat-filters');
+                container.innerHTML = '';
+                
+                // 1. "Alle" Checkbox (Master)
+                const masterLabel = document.createElement('label');
+                masterLabel.className = 'filter-label master';
+                
+                const masterCheckbox = document.createElement('input');
+                masterCheckbox.type = 'checkbox';
+                masterCheckbox.checked = this.activeCategories.length === this.allCats.length;
+                
+                masterCheckbox.onchange = (e) => {
+                    if (e.target.checked) {
+                        this.activeCategories = [...this.allCats];
+                    } else {
+                        this.activeCategories = [];
+                    }
+                    this.renderCategoryFilters(); // Re-render um Checkboxen zu aktualisieren
+                    this.renderCategoryView();
+                };
+
+                masterLabel.appendChild(masterCheckbox);
+                masterLabel.appendChild(document.createTextNode(this.activeCategories.length === this.allCats.length ? 'Alle aus' : 'Alle an'));
+                container.appendChild(masterLabel);
+
+                // 2. Einzelne Kategorien
+                this.allCats.forEach(cat => {
+                    const label = document.createElement('label');
+                    label.className = 'filter-label';
+                    
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.checked = this.activeCategories.includes(cat);
+                    checkbox.value = cat;
+                    
+                    checkbox.onchange = (e) => {
+                        if (e.target.checked) {
+                            this.activeCategories.push(cat);
+                        } else {
+                            this.activeCategories = this.activeCategories.filter(c => c !== cat);
+                        }
+                        // Update Master Checkbox Status visuell
+                        this.renderCategoryFilters(); 
+                        this.renderCategoryView();
+                    };
+
+                    label.appendChild(checkbox);
+                    label.appendChild(document.createTextNode(' ' + cat));
+                    container.appendChild(label);
+                });
+            },
+
+            renderProductGrid: function() {
+                const container = document.getElementById('grid-container');
+                container.innerHTML = '';
+                const filtered = CATALOG.filter(p => p.name.toLowerCase().includes(this.searchTerm));
+                filtered.forEach(p => container.appendChild(this.createProductCard(p)));
+            },
+
+            renderCategoryView: function() {
+                const container = document.getElementById('cat-list-container');
+                container.innerHTML = '';
+
+                const filtered = CATALOG.filter(p => {
+                    return p.name.toLowerCase().includes(this.searchTerm) && this.activeCategories.includes(p.category);
+                });
+
+                const grouped = {};
+                filtered.forEach(p => {
+                    if (!grouped[p.category]) grouped[p.category] = [];
+                    grouped[p.category].push(p);
+                });
+
+                for (const cat in grouped) {
+                    const groupDiv = document.createElement('div');
+                    groupDiv.className = 'cat-group';
+                    groupDiv.innerHTML = `<div class="cat-title">${cat}</div>`;
+                    const gridDiv = document.createElement('div');
+                    gridDiv.className = 'product-grid';
+                    grouped[cat].forEach(p => gridDiv.appendChild(this.createProductCard(p)));
+                    groupDiv.appendChild(gridDiv);
+                    container.appendChild(groupDiv);
+                }
+            },
+
+            createProductCard: function(product) {
+                const state = this.cart[product.name] || { qty: 0 };
+                const inCart = state.qty > 0;
+                const card = document.createElement('div');
+                card.className = `product-card ${inCart ? 'in-cart' : ''}`;
+                card.onclick = (e) => {
+                    if (e.target.tagName !== 'BUTTON') this.updateQty(product.name, 1);
+                };
+                card.innerHTML = `
+                    <div class="card-header">
+                        <span class="prod-icon">${product.icon}</span>
+                        <span class="prod-name">${product.name}</span>
+                        <div class="prod-meta">${product.category}</div>
+                        <span class="prod-side">${product.side === 'W' ? 'West' : 'Ost'}</span>
+                    </div>
+                    <div class="controls">
+                        <button class="btn-ctrl btn-minus" onclick="app.updateQty('${product.name}', -1)">-</button>
+                        <span class="qty-display">${state.qty > 0 ? state.qty : ''}</span>
+                        <button class="btn-ctrl btn-plus" onclick="app.updateQty('${product.name}', 1)">+</button>
+                    </div>
+                `;
+                return card;
+            },
+
+            renderShoppingList: function() {
+                const container = document.getElementById('shopping-list-container');
+                container.innerHTML = '';
+                let listItems = [];
+                for (const [name, data] of Object.entries(this.cart)) {
+                    if (data.qty > 0) {
+                        const product = CATALOG.find(p => p.name === name);
+                        if (product) listItems.push({ ...product, ...data });
+                    }
+                }
+
+                if (listItems.length === 0) {
+                    container.innerHTML = '<div class="empty-msg">Deine Einkaufsliste ist leer.</div>';
+                    return;
+                }
+
+                listItems.sort((a, b) => {
+                    if (a.category !== b.category) return a.category.localeCompare(b.category);
+                    const sideVal = (s) => (s === 'W' ? 1 : 2);
+                    if (sideVal(a.side) !== sideVal(b.side)) return sideVal(a.side) - sideVal(b.side);
+                    return a.name.localeCompare(b.name);
+                });
+
+                listItems.forEach(item => {
+                    const el = document.createElement('div');
+                    el.className = `shopping-list-item ${item.checked ? 'checked' : ''}`;
+                    el.innerHTML = `
+                        <div class="item-left">
+                            <input type="checkbox" class="checkbox-custom" 
+                                ${item.checked ? 'checked' : ''} 
+                                onchange="app.toggleCheck('${item.name}')">
+                            <div class="item-text item-details">
+                                <span class="item-name-row">${item.icon} ${item.name} (${item.qty})</span>
+                                <span class="item-info-row">${item.category} • ${item.side}</span>
+                            </div>
+                        </div>
+                    `;
+                    container.appendChild(el);
+                });
+                this.currentSortedList = listItems;
+            },
+
+            // --- PDF EXPORT (NEU DESIGNT) ---
+            exportPDF: function() {
+                if (!this.currentSortedList || this.currentSortedList.length === 0) {
+                    alert("Liste ist leer!");
+                    return;
+                }
+
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                
+                // Farben definieren
+                const primaryColor = [46, 125, 50]; // #2E7D32
+                const lightGray = [240, 240, 240];
+                const darkText = [50, 50, 50];
+
+                // 1. Header (Grün)
+                doc.setFillColor(...primaryColor);
+                doc.rect(0, 0, 210, 30, 'F');
+                
+                doc.setFont("helvetica", "bold");
+                doc.setFontSize(22);
+                doc.setTextColor(255, 255, 255);
+                doc.text("Einkaufsliste", 15, 20);
+
+                // Datum
+                const today = new Date().toLocaleDateString('de-DE');
+                doc.setFontSize(12);
+                doc.text(today, 195, 20, { align: "right" });
+
+                // Gruppieren für das Layout
+                const grouped = {};
+                this.currentSortedList.forEach(item => {
+                    if (!grouped[item.category]) grouped[item.category] = [];
+                    grouped[item.category].push(item);
+                });
+
+                let y = 45; // Start Y-Position
+
+                // Iteriere über Kategorien
+                for (const cat in grouped) {
+                    // Prüfe Seitenende
+                    if (y > 270) { doc.addPage(); y = 20; }
+
+                    // Kategorie Header (Linie + Text)
+                    doc.setDrawColor(...primaryColor);
+                    doc.setLineWidth(0.5);
+                    doc.line(15, y - 5, 195, y - 5); // Linie oben
+                    
+                    doc.setFont("helvetica", "bold");
+                    doc.setFontSize(14);
+                    doc.setTextColor(...primaryColor);
+                    doc.text(cat, 15, y);
+                    y += 10;
+
+                    // Items der Kategorie
+                    doc.setFont("helvetica", "normal");
+                    doc.setFontSize(12);
+                    doc.setTextColor(...darkText);
+
+                    grouped[cat].forEach(item => {
+                        if (y > 280) { doc.addPage(); y = 20; }
+
+                        // 1. Quadrat zum Abhaken
+                        doc.setDrawColor(100);
+                        doc.setLineWidth(0.3);
+                        doc.rect(15, y - 4, 5, 5); // x, y, w, h
+
+                        // 2. Text: Name (Menge) - Seite
+                        // Hinweis: Emojis werden im Standard-PDF oft nicht unterstützt, 
+                        // daher nutzen wir hier nur Text.
+                        const text = `${item.name} (x${item.qty})`;
+                        const sideInfo = `${item.side === 'W' ? 'West' : 'Ost'}`;
+                        
+                        doc.text(text, 25, y);
+                        
+                        // Seite rechtsbündig
+                        doc.setFontSize(10);
+                        doc.setTextColor(150);
+                        doc.text(sideInfo, 195, y, { align: "right" });
+                        
+                        // Farbe zurücksetzen
+                        doc.setFontSize(12);
+                        doc.setTextColor(...darkText);
+
+                        y += 8; // Zeilenabstand Items
+                    });
+
+                    y += 10; // Abstand zur nächsten Kategorie
+                }
+
+                doc.save(`einkaufsliste_${today}.pdf`);
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            app.init();
+        });
+    </script>
+</body>
+</html>
