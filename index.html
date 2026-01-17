@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Einkaufsliste App</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        /* --- CSS VARIABLES --- */
+        :root {
+            --primary-color: #2E7D32; 
+            --primary-light: #4CAF50;
+            --primary-dark: #1B5E20;
+            --bg-color: #f4f4f9;
+            --card-bg: #ffffff;
+            --text-color: #222;
+            --gray-text: #666;
+            --border-color: #ddd;
+            --danger-color: #e53935;
+        }
+
+        /* --- RESET & BASE --- */
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            /* Padding unten für Navigation/Footer */
+            padding-bottom: 100px; 
+            overscroll-behavior-y: none; /* Verhindert "Bounce" Effekt auf iOS */
+        }
+
+        /* --- HEADER --- */
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 15px 0;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        h1 { margin: 0; font-size: 1.3rem; font-weight: 700; }
+
+        /* --- TABS NAVIGATION --- */
+        .tabs {
+            display: flex;
+            background: white;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            position: sticky;
+            top: 54px; /* Unter Header */
+            z-index: 900;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 16px 5px;
+            border: none;
+            background: none;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--gray-text);
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: color 0.2s;
+        }
+
+        .tab-btn.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+
+        /* --- SEARCH --- */
+        .search-container {
+            padding: 12px;
+            background: white;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        #search-input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #ccc;
+            border-radius: 25px;
+            font-size: 1rem;
+            background-color: #f9f9f9;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        #search-input:focus { border-color: var(--primary-color); background: white; }
+
+        /* --- FILTERS --- */
+        .filter-container {
+            padding: 12px;
+            background: white;
+            overflow-x: auto;
+            white-space: nowrap;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            -webkit-overflow-scrolling: touch; /* Smooth scroll iOS */
+            gap: 8px;
+        }
+
+        .filter-label {
+            display: inline-flex;
+            align-items: center;
+            font-size: 0.9rem;
+            cursor: pointer;
+            padding: 6px 12px;
+            border-radius: 20px;
+            background: #f0f0f0;
+            color: #444;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        
+        /* Visueller Style wenn Checkbox aktiv ist */
+        .filter-label.is-active {
+            background-color: #e8f5e9;
+            color: var(--primary-dark);
+            border: 1px solid var(--primary-light);
+        }
+
+        .filter-label.master {
+            background-color: #333;
+            color: white;
+        }
+        .filter-label.master.is-active {
+            background-color: var(--primary-color);
+            border: 1px solid var(--primary-dark);
+        }
+
+        .filter-label input { display: none; } /* Checkbox verstecken, Style über Label */
+
+        /* --- CONTENT VIEWS --- */
+        .view-section {
+            display: none;
+            padding: 12px;
+            animation: fadeIn 0.3s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .view-section.active { display: block; }
+
+        /* --- GRID LAYOUT (Mobile Optimized) --- */
+        .product-grid {
+            display: grid;
+            /* Flexibles Raster: Mindestens 100px breit, füllt den Rest */
+            grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
+            gap: 12px;
+        }
+
+        .product-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            position: relative;
+            height: 100%;
+            transition: transform 0.1s;
+        }
+
+        .product-card:active { transform: scale(0.98); }
+
+        .product-card.in-cart {
+            border: 2px solid var(--primary-color);
+            background-color: #f1f8e9;
+        }
+
+        .card-header { 
+            text-align: center; 
+            margin-bottom: 10px;
+        }
+
+        .prod-icon { 
+            font-size: 2.2rem; 
+            display: block; 
+            margin-bottom: 5px; 
+            line-height: 1;
+        }
+
+        .prod-name {
+            font-weight: 600;
+            font-size: 0.95rem;
+            display: block;
+            margin-bottom: 4px;
+            line-height: 1.2;
+        }
+
+        .prod-side {
+            display: inline-block;
+            background: #eee;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            color: #555;
+            font-weight: bold;
+        }
+
+        /* --- CONTROLS (+ / -) --- */
+        .controls {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(255,255,255,0.5);
+            border-radius: 20px;
+            padding: 2px;
+        }
+
+        .btn-ctrl {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: none;
+            font-size: 1.4rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            touch-action: manipulation;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: background 0.1s;
+        }
+
+        .btn-minus { background-color: #fff; color: var(--danger-color); border: 1px solid #ddd; }
+        .btn-minus:active { background-color: #fee; }
+        
+        .btn-plus { background-color: var(--primary-color); color: white; }
+        .btn-plus:active { background-color: var(--primary-dark); }
+        
+        .qty-display {
+            font-weight: 700;
+            font-size: 1.1rem;
+            width: 25px;
+            text-align: center;
+            color: var(--text-color);
+        }
+
+        /* --- CATEGORY LIST --- */
+        .cat-group { margin-bottom: 30px; }
+        .cat-title {
+            font-size: 1.1rem;
+            color: var(--primary-dark);
+            margin-bottom: 12px;
+            padding-left: 5px;
+            font-weight: 700;
+            border-left: 4px solid var(--primary-color);
+            padding-left: 10px;
+        }
+
+        /* --- SHOPPING LIST ITEMS --- */
+        .shopping-list-item {
+            background: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: opacity 0.2s;
+        }
+
+        .shopping-list-item.checked {
+            background-color: #f9f9f9;
+        }
+        .shopping-list-item.checked .item-name-row {
+            text-decoration: line-through;
+            color: #888;
+        }
+        .shopping-list-item.checked .prod-icon { opacity: 0.5; }
+
+        .item-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex: 1;
+        }
+
+        .checkbox-custom {
+            width: 28px;
+            height: 28px;
+            cursor: pointer;
+            accent-color: var(--primary-color);
+            flex-shrink: 0;
+        }
+
+        .item-details { flex: 1; }
+
+        .item-name-row { 
+            font-size: 1.05rem; 
+            font-weight: 600; 
+            display: block; 
+            margin-bottom: 2px; 
+        }
+
+        .item-info-row { font-size: 0.85rem; color: var(--gray-text); }
+
+        .item-qty-badge {
+            background: var(--primary-color);
+            color: white;
+            font-weight: bold;
+            min-width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            flex-shrink: 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        /* --- FIXED BOTTOM BAR FOR PDF --- */
+        .bottom-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: white;
+            padding: 15px;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            display: none; /* Nur sichtbar im Shop Tab */
+        }
+        .bottom-bar.visible { display: block; }
+
+        .btn-pdf {
+            display: block;
+            width: 100%;
+            padding: 16px;
+            background-color: var(--primary-color);
+            color: white;
+            text-align: center;
+            border: none;
+            font-size: 1.1rem;
+            font-weight: bold;
+            border-radius: 12px;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+        .btn-pdf:active { transform: scale(0.98); background: var(--primary-dark); }
+
+        /* Helper */
+        .hidden { display: none !important; }
+        .empty-msg { 
+            text-align: center; 
+            color: var(--gray-text); 
+            margin-top: 50px; 
+            font-size: 1.1rem;
+        }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>🛒 Einkaufsliste</h1>
+    </header>
+
+    <nav class="tabs">
+        <button class="tab-btn active" onclick="app.switchTab('all')">Produkte</button>
+        <button class="tab-btn" onclick="app.switchTab('cats')">Kategorien</button>
+        <button class="tab-btn" onclick="app.switchTab('shop')">Einkaufen</button>
+    </nav>
+
+    <div id="search-wrapper" class="search-container">
+        <input type="text" id="search-input" placeholder="🔍 Produkt suchen..." oninput="app.handleSearch()">
+    </div>
+
+    <section id="view-all" class="view-section active">
+        <div id="grid-container" class="product-grid">
+            </div>
+    </section>
+
+    <section id="view-cats" class="view-section">
+        <div id="cat-filters" class="filter-container">
+            </div>
+        <div id="cat-list-container">
+            </div>
+    </section>
+
+    <section id="view-shop" class="view-section">
+        <div id="shopping-list-container">
+            </div>
+    </section>
+
+    <div id="shop-footer" class="bottom-bar">
+        <button class="btn-pdf" onclick="app.exportPDF()">📄 Als PDF exportieren</button>
+    </div>
+
+    <script>
+        /** DATEN */
+        const CATALOG = [
+            { name: "Äpfel", category: "Obst & Gemüse", side: "W", icon: "🍎" },
+            { name: "Bananen", category: "Obst & Gemüse", side: "W", icon: "🍌" },
+            { name: "Karotten", category: "Obst & Gemüse", side: "W", icon: "🥕" },
+            { name: "Kartoffeln", category: "Obst & Gemüse", side: "W", icon: "🥔" },
+            { name: "Brokkoli", category: "Obst & Gemüse", side: "W", icon: "🥦" },
+            { name: "Milch", category: "Milchprodukte", side: "O", icon: "🥛" },
+            { name: "Käse", category: "Milchprodukte", side: "O", icon: "🧀" },
+            { name: "Joghurt", category: "Milchprodukte", side: "O", icon: "🍦" },
+            { name: "Butter", category: "Milchprodukte", side: "O", icon: "🧈" },
+            { name: "Brot", category: "Backwaren", side: "W", icon: "🍞" },
+            { name: "Toast", category: "Backwaren", side: "W", icon: "🥪" },
+            { name: "Nudeln", category: "Vorratsschrank", side: "O", icon: "🍝" },
+            { name: "Reis", category: "Vorratsschrank", side: "O", icon: "🍚" },
+            { name: "Sauce", category: "Vorratsschrank", side: "O", icon: "🥫" },
+            { name: "Schokolade", category: "Süßigkeiten", side: "W", icon: "🍫" },
+            { name: "Chips", category: "Süßigkeiten", side: "W", icon: "🥨" },
+            { name: "Wasser", category: "Getränke", side: "O", icon: "💧" },
+            { name: "Saft", category: "Getränke", side: "O", icon: "🧃" },
+            { name: "Cola", category: "Getränke", side: "O", icon: "🥤" },
+            { name: "Klopapier", category: "Haushalt", side: "O", icon: "🧻" },
+            { name: "Seife", category: "Haushalt", side: "O", icon: "🧼" }
+        ];
+
+        /** APP LOGIK */
+        const app = {
+            cart: {}, 
+            activeTab: 'all',
+            searchTerm: '',
+            activeCategories: [], 
+            allCats: [],
+
+            init: function() {
+                // LocalStorage laden
+                try {
+                    const storedCart = localStorage.getItem('shoppingCart');
+                    if (storedCart) this.cart = JSON.parse(storedCart);
+                } catch(e) { console.error("LS Error", e); }
+
+                // Kategorien initialisieren
+                this.allCats = [...new Set(CATALOG.map(p => p.category))];
+                this.activeCategories = [...this.allCats]; 
+
+                this.renderCategoryFilters();
+                this.renderProductGrid(); // Startseite rendern
+            },
+
+            save: function() {
+                localStorage.setItem('shoppingCart', JSON.stringify(this.cart));
+            },
+
+            // --- NAVIGATION ---
+            switchTab: function(tabName) {
+                this.activeTab = tabName;
+                
+                // Tabs stylen
+                document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+                event.target.classList.add('active');
+
+                // Views umschalten
+                document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+                document.getElementById('view-' + tabName).classList.add('active');
+
+                // UI Elemente je nach Tab
+                const searchWrapper = document.getElementById('search-wrapper');
+                const footer = document.getElementById('shop-footer');
+
+                if (tabName === 'shop') {
+                    searchWrapper.classList.add('hidden');
+                    footer.classList.add('visible');
+                    this.renderShoppingList();
+                } else {
+                    searchWrapper.classList.remove('hidden');
+                    footer.classList.remove('visible');
+                    // Inhalt refreshen, falls sich Mengen geändert haben
+                    if (tabName === 'all') this.renderProductGrid();
+                    if (tabName === 'cats') this.renderCategoryView();
+                }
+            },
+
+            handleSearch: function() {
+                this.searchTerm = document.getElementById('search-input').value.toLowerCase();
+                if (this.activeTab === 'all') this.renderProductGrid();
+                if (this.activeTab === 'cats') this.renderCategoryView();
+            },
+
+            // --- CORE LOGIK: MENGE UPDATE ---
+            updateQty: function(prodName, delta) {
+                // 1. State Update
+                if (!this.cart[prodName]) this.cart[prodName] = { qty: 0, checked: false };
+                
+                let newQty = this.cart[prodName].qty + delta;
+                if (newQty > 10) return; // Limit etwas lockerer
+                
+                if (newQty <= 0) {
+                    delete this.cart[prodName];
+                } else {
+                    this.cart[prodName].qty = newQty;
+                }
+
+                // 2. Sofort speichern
+                this.save();
+
+                // 3. UI SOFORT UPDATE (Wichtig für Reaktivität)
+                // Statt alles neu zu rendern, könnten wir nur das Element updaten, 
+                // aber "Render Current View" ist sicherer gegen Bugs.
+                if (this.activeTab === 'all') this.renderProductGrid();
+                else if (this.activeTab === 'cats') this.renderCategoryView();
+                else if (this.activeTab === 'shop') this.renderShoppingList();
+            },
+
+            toggleCheck: function(prodName) {
+                if (this.cart[prodName]) {
+                    this.cart[prodName].checked = !this.cart[prodName].checked;
+                    this.save();
+                    this.renderShoppingList();
+                }
+            },
+
+            // --- RENDERERS ---
+
+            renderCategoryFilters: function() {
+                const container = document.getElementById('cat-filters');
+                container.innerHTML = '';
+                
+                // Master Toggle
+                const allSelected = this.activeCategories.length === this.allCats.length;
+                const masterLabel = document.createElement('label');
+                masterLabel.className = `filter-label master ${allSelected ? 'is-active' : ''}`;
+                masterLabel.innerHTML = `
+                    <input type="checkbox" ${allSelected ? 'checked' : ''}>
+                    ${allSelected ? 'Alle aus' : 'Alle an'}
+                `;
+                masterLabel.onclick = (e) => {
+                    e.preventDefault(); // Default Click verhindern, Logik manuell
+                    if (allSelected) this.activeCategories = [];
+                    else this.activeCategories = [...this.allCats];
+                    this.renderCategoryFilters();
+                    this.renderCategoryView();
+                };
+                container.appendChild(masterLabel);
+
+                // Einzelne Kategorien
+                this.allCats.forEach(cat => {
+                    const isActive = this.activeCategories.includes(cat);
+                    const label = document.createElement('label');
+                    label.className = `filter-label ${isActive ? 'is-active' : ''}`;
+                    label.innerHTML = `<input type="checkbox" ${isActive ? 'checked' : ''}> ${cat}`;
+                    
+                    label.onclick = (e) => {
+                        e.preventDefault();
+                        if (isActive) {
+                            this.activeCategories = this.activeCategories.filter(c => c !== cat);
+                        } else {
+                            this.activeCategories.push(cat);
+                        }
+                        this.renderCategoryFilters();
+                        this.renderCategoryView();
+                    };
+                    container.appendChild(label);
+                });
+            },
+
+            // Helper: Baut eine Produktkarte
+            buildCardHTML: function(p) {
+                const state = this.cart[p.name] || { qty: 0 };
+                const inCart = state.qty > 0;
+                
+                // Wir nutzen onmousedown für schnellere Reaktion auf Touch, aber onclick ist kompatibler
+                return `
+                <div class="product-card ${inCart ? 'in-cart' : ''}">
+                    <div class="card-header" onclick="app.updateQty('${p.name}', 1)">
+                        <span class="prod-icon">${p.icon}</span>
+                        <span class="prod-name">${p.name}</span>
+                        <span class="prod-side">${p.side === 'W' ? 'West' : 'Ost'}</span>
+                    </div>
+                    <div class="controls">
+                        <button class="btn-ctrl btn-minus" onclick="app.updateQty('${p.name}', -1)">-</button>
+                        <span class="qty-display">${state.qty > 0 ? state.qty : ''}</span>
+                        <button class="btn-ctrl btn-plus" onclick="app.updateQty('${p.name}', 1)">+</button>
+                    </div>
+                </div>`;
+            },
+
+            renderProductGrid: function() {
+                const container = document.getElementById('grid-container');
+                const filtered = CATALOG.filter(p => p.name.toLowerCase().includes(this.searchTerm));
+                
+                // Performance: String Concat statt createElement Loop
+                container.innerHTML = filtered.map(p => this.buildCardHTML(p)).join('');
+            },
+
+            renderCategoryView: function() {
+                const container = document.getElementById('cat-list-container');
+                container.innerHTML = '';
+
+                const filtered = CATALOG.filter(p => {
+                    return p.name.toLowerCase().includes(this.searchTerm) && this.activeCategories.includes(p.category);
+                });
+
+                if (filtered.length === 0) {
+                    container.innerHTML = '<div class="empty-msg">Keine Produkte in dieser Kategorie/Suche.</div>';
+                    return;
+                }
+
+                // Gruppieren
+                const grouped = {};
+                filtered.forEach(p => {
+                    if (!grouped[p.category]) grouped[p.category] = [];
+                    grouped[p.category].push(p);
+                });
+
+                for (const cat in grouped) {
+                    const groupHTML = `
+                        <div class="cat-group">
+                            <div class="cat-title">${cat}</div>
+                            <div class="product-grid">
+                                ${grouped[cat].map(p => this.buildCardHTML(p)).join('')}
+                            </div>
+                        </div>
+                    `;
+                    container.innerHTML += groupHTML;
+                }
+            },
+
+            renderShoppingList: function() {
+                const container = document.getElementById('shopping-list-container');
+                container.innerHTML = '';
+
+                // Liste bauen
+                let listItems = [];
+                for (const [name, data] of Object.entries(this.cart)) {
+                    if (data.qty > 0) {
+                        const product = CATALOG.find(p => p.name === name);
+                        if (product) listItems.push({ ...product, ...data });
+                    }
+                }
+
+                if (listItems.length === 0) {
+                    container.innerHTML = '<div class="empty-msg">Dein Einkaufswagen ist leer.<br>Gehe zu "Produkte" und füge etwas hinzu.</div>';
+                    return;
+                }
+
+                // Sortieren
+                listItems.sort((a, b) => {
+                    if (a.category !== b.category) return a.category.localeCompare(b.category);
+                    const sideVal = (s) => (s === 'W' ? 1 : 2);
+                    if (sideVal(a.side) !== sideVal(b.side)) return sideVal(a.side) - sideVal(b.side);
+                    return a.name.localeCompare(b.name);
+                });
+
+                // Rendern
+                listItems.forEach(item => {
+                    const el = document.createElement('div');
+                    el.className = `shopping-list-item ${item.checked ? 'checked' : ''}`;
+                    el.innerHTML = `
+                        <div class="item-left">
+                            <input type="checkbox" class="checkbox-custom" 
+                                ${item.checked ? 'checked' : ''} 
+                                onchange="app.toggleCheck('${item.name}')">
+                            <div class="prod-icon" style="font-size: 1.5rem;">${item.icon}</div>
+                            <div class="item-details">
+                                <span class="item-name-row">${item.name}</span>
+                                <span class="item-info-row">${item.category} • ${item.side === 'W' ? 'West' : 'Ost'}</span>
+                            </div>
+                        </div>
+                        <div class="item-qty-badge" onclick="app.updateQty('${item.name}', 1)">
+                            ${item.qty}
+                        </div>
+                    `;
+                    container.appendChild(el);
+                });
+                
+                this.currentSortedList = listItems;
+            },
+
+            // --- PDF HELPERS ---
+            
+            // Trick: Emoji zu Bild konvertieren mittels Canvas
+            textToImage: function(text) {
+                const canvas = document.createElement("canvas");
+                canvas.width = 50;
+                canvas.height = 50;
+                const ctx = canvas.getContext("2d");
+                ctx.font = "40px serif"; // Große Schrift für Qualität
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(text, 25, 27);
+                return canvas.toDataURL("image/png");
+            },
+
+            exportPDF: function() {
+                if (!this.currentSortedList || this.currentSortedList.length === 0) return;
+
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                
+                // Farben
+                const green = [46, 125, 50]; 
+                const black = [40, 40, 40];
+
+                // 1. Header Box
+                doc.setFillColor(...green);
+                doc.rect(0, 0, 210, 35, 'F');
+                
+                // Titel
+                doc.setFont("helvetica", "bold");
+                doc.setFontSize(24);
+                doc.setTextColor(255, 255, 255);
+                doc.text("Einkaufsliste", 15, 23);
+
+                // Datum
+                const today = new Date().toLocaleDateString('de-DE');
+                doc.setFontSize(12);
+                doc.text(today, 195, 23, { align: "right" });
+
+                // Gruppieren
+                const grouped = {};
+                this.currentSortedList.forEach(item => {
+                    if (!grouped[item.category]) grouped[item.category] = [];
+                    grouped[item.category].push(item);
+                });
+
+                let y = 50; 
+
+                // Durch Kategorien iterieren
+                for (const cat in grouped) {
+                    if (y > 270) { doc.addPage(); y = 20; }
+
+                    // Kategorie Header (Dicke Linie + Text)
+                    doc.setDrawColor(...green);
+                    doc.setLineWidth(0.7);
+                    doc.line(15, y - 6, 195, y - 6);
+                    
+                    doc.setFont("helvetica", "bold");
+                    doc.setFontSize(14);
+                    doc.setTextColor(...green);
+                    doc.text(cat, 15, y);
+                    y += 12;
+
+                    // Produkte
+                    doc.setFont("helvetica", "bold"); // Name fett
+                    doc.setFontSize(12);
+                    doc.setTextColor(...black);
+                    doc.setLineWidth(0.3);
+                    doc.setDrawColor(150);
+
+                    grouped[cat].forEach(item => {
+                        if (y > 280) { doc.addPage(); y = 20; }
+
+                        // 1. Checkbox Quadrat
+                        doc.rect(15, y - 5, 6, 6);
+
+                        // 2. Icon (als Bild einfügen, da Font fehlt)
+                        try {
+                            const iconData = this.textToImage(item.icon);
+                            doc.addImage(iconData, 'PNG', 26, y - 7, 8, 8);
+                        } catch (e) {
+                            // Fallback falls Canvas fehlschlägt
+                        }
+
+                        // 3. Name
+                        doc.setFont("helvetica", "bold");
+                        doc.setTextColor(0, 0, 0);
+                        doc.text(item.name, 38, y);
+
+                        // 4. Menge im Kreis (Schöner als x3)
+                        const qtyText = item.qty.toString();
+                        // Kreis zeichnen
+                        doc.setFillColor(...green);
+                        doc.circle(130, y - 2, 4, 'F');
+                        // Zahl weiß darin
+                        doc.setTextColor(255, 255, 255);
+                        doc.setFontSize(10);
+                        doc.text(qtyText, 130, y - 0.5, { align: "center", baseline: "middle" });
+
+                        // 5. Seite (Rechtsbündig)
+                        doc.setTextColor(120, 120, 120);
+                        doc.setFontSize(10);
+                        doc.text(item.side === 'W' ? 'West' : 'Ost', 195, y, { align: "right" });
+
+                        y += 10;
+                    });
+                    y += 8; // Abstand nach Gruppe
+                }
+
+                doc.save(`einkaufsliste_${today}.pdf`);
+            }
+        };
+
+        // Start
+        document.addEventListener('DOMContentLoaded', () => app.init());
+
+    </script>
+</body>
+</html>
