@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Unsere Einkaufsliste</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        :root {
+            --primary-color: #2E7D32; 
+            --bg-color: #f4f4f9;
+            --card-bg: #ffffff;
+            --text-color: #222;
+            --border-color: #ddd;
+            --danger-color: #d32f2f;
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            font-family: sans-serif;
+            margin: 0; background-color: var(--bg-color);
+            color: var(--text-color);
+            padding-bottom: 120px; /* Mehr Platz unten für 2 Buttons */
+        }
+
+        header {
+            background-color: var(--primary-color);
+            color: white; padding: 15px; text-align: center;
+            position: sticky; top: 0; z-index: 1000;
+        }
+
+        .tabs {
+            display: flex; background: white;
+            position: sticky; top: 54px; z-index: 900;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .tab-btn {
+            flex: 1; padding: 15px; border: none; background: none;
+            font-weight: bold; color: #666; cursor: pointer;
+        }
+
+        .tab-btn.active { color: var(--primary-color); border-bottom: 3px solid var(--primary-color); }
+
+        .search-container { padding: 10px; background: white; }
+        #search-input {
+            width: 100%; padding: 12px; border: 1px solid #ccc;
+            border-radius: 25px; font-size: 1rem;
+        }
+
+        .view-section { display: none; padding: 12px; }
+        .view-section.active { display: block; }
+
+        .cat-title { font-weight: bold; margin: 20px 0 10px; color: var(--primary-color); border-bottom: 1px solid #ddd; }
+
+        .product-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px;
+        }
+
+        .product-card {
+            background: white; padding: 10px; border-radius: 12px; text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05); position: relative;
+        }
+        .product-card.in-cart { border: 2px solid var(--primary-color); background: #f1f8e9; }
+
+        .prod-icon { font-size: 2rem; display: block; }
+        .prod-name { font-size: 0.8rem; font-weight: bold; display: block; margin: 5px 0; min-height: 30px; display: flex; align-items: center; justify-content: center;}
+
+        .controls { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+        .btn-ctrl { width: 28px; height: 28px; border-radius: 50%; border: 1px solid #ccc; background: white; font-weight: bold; }
+        .btn-plus { background: var(--primary-color); color: white; border: none; }
+
+        .shopping-list-item {
+            background: white; margin-bottom: 8px; padding: 12px; border-radius: 10px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .shopping-list-item.checked { opacity: 0.5; text-decoration: line-through; }
+
+        .bottom-bar {
+            position: fixed; bottom: 0; width: 100%; padding: 15px; background: white;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1); display: none;
+            display: flex; gap: 10px; /* Abstand zwischen Buttons */
+        }
+        /* Standardmäßig verstecken, wird per JS eingeblendet */
+        #shop-footer { display: none; }
+        #shop-footer.visible { display: flex; }
+
+        .btn-action { flex: 1; padding: 15px; border: none; border-radius: 10px; font-weight: bold; color: white; cursor: pointer; }
+        .btn-pdf { background: var(--primary-color); }
+        .btn-reset { background: var(--danger-color); }
+    </style>
+</head>
+<body>
+
+    <header><h1>🛒 Unsere Cloud-Liste</h1></header>
+
+    <nav class="tabs">
+        <button class="tab-btn active" onclick="app.switchTab('all')">Produkte</button>
+        <button class="tab-btn" onclick="app.switchTab('cats')">Kategorien</button>
+        <button class="tab-btn" onclick="app.switchTab('shop')">Einkaufen</button>
+    </nav>
+
+    <div id="search-wrapper" class="search-container">
+        <input type="text" id="search-input" placeholder="Suchen..." oninput="app.handleSearch()">
+    </div>
+
+    <section id="view-all" class="view-section active"><div id="grid-container" class="product-grid"></div></section>
+    <section id="view-cats" class="view-section"><div id="cat-list-container"></div></section>
+    <section id="view-shop" class="view-section"><div id="shopping-list-container"></div></section>
+
+    <div id="shop-footer" class="bottom-bar">
+        <button class="btn-action btn-reset" onclick="app.clearCart()">🗑️ Alles Löschen</button>
+        <button class="btn-action btn-pdf" onclick="app.exportPDF()">📄 PDF</button>
+    </div>
+
+    <script type="module">
+        // Firebase Setup
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, set, onValue, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBDchXMOrJO3Qy9yQISP87vOeE7vZU5yD4",
+            authDomain: "einkaufsliste-746a1.firebaseapp.com",
+            databaseURL: "https://einkaufsliste-746a1-default-rtdb.europe-west1.firebasedatabase.app",
+            projectId: "einkaufsliste-746a1",
+            storageBucket: "einkaufsliste-746a1.firebasestorage.app",
+            messagingSenderId: "152718589857",
+            appId: "1:152718589857:web:896512392d7ae7c3e995e0"
+        };
+
+        const fApp = initializeApp(firebaseConfig);
+        const db = getDatabase(fApp);
+        const dbRef = ref(db, 'shared-shopping-list');
+
+        const CATALOG = [
+            // OBST & GEMÜSE (W)
+            { name: "Erdbeeren", category: "Obst & Gemüse", side: "W", icon: "🍓" },
+            { name: "Heidelbeeren", category: "Obst & Gemüse", side: "W", icon: "🫐" },
+            { name: "Himbeeren", category: "Obst & Gemüse", side: "W", icon: "🍒" },
+            { name: "Brokkoli", category: "Obst & Gemüse", side: "W", icon: "🥦" },
+            { name: "Champignons", category: "Obst & Gemüse", side: "W", icon: "🍄" },
+            { name: "Karfiol", category: "Obst & Gemüse", side: "W", icon: "🥦" },
+            { name: "Lauch", category: "Obst & Gemüse", side: "W", icon: "🧅" },
+            { name: "Blattsalat", category: "Obst & Gemüse", side: "W", icon: "🥬" },
+            { name: "Eisbergsalat", category: "Obst & Gemüse", side: "W", icon: "🥬" },
+            { name: "Vogerlsalat", category: "Obst & Gemüse", side: "W", icon: "🥬" },
+            { name: "Babyblattspinat", category: "Obst & Gemüse", side: "W", icon: "🍃" },
+            { name: "Orangen", category: "Obst & Gemüse", side: "W", icon: "🍊" },
+            { name: "Mandarinen", category: "Obst & Gemüse", side: "W", icon: "🍊" },
+            { name: "Zitronen", category: "Obst & Gemüse", side: "W", icon: "🍋" },
+            { name: "Trauben", category: "Obst & Gemüse", side: "W", icon: "🍇" },
+            { name: "Avocado", category: "Obst & Gemüse", side: "W", icon: "🥑" },
+            { name: "Kiwi", category: "Obst & Gemüse", side: "W", icon: "🥝" },
+            { name: "Mango", category: "Obst & Gemüse", side: "W", icon: "🥭" },
+            { name: "Äpfel", category: "Obst & Gemüse", side: "W", icon: "🍎" },
+            { name: "Bananen", category: "Obst & Gemüse", side: "W", icon: "🍌" },
+            { name: "Zwiebeln", category: "Obst & Gemüse", side: "W", icon: "🧅" },
+            { name: "Kartoffeln", category: "Obst & Gemüse", side: "W", icon: "🥔" },
+            { name: "Süßkartoffel", category: "Obst & Gemüse", side: "W", icon: "🍠" },
+            { name: "Ingwer", category: "Obst & Gemüse", side: "W", icon: "🫚" },
+            { name: "Knoblauch", category: "Obst & Gemüse", side: "W", icon: "🧄" },
+            { name: "Rote Rüben Frisch", category: "Obst & Gemüse", side: "W", icon: "🥔" },
+            { name: "Rote Rüben Vorgekocht", category: "Obst & Gemüse", side: "W", icon: "🥔" },
+            { name: "Karotten", category: "Obst & Gemüse", side: "W", icon: "🥕" },
+            { name: "Gurken", category: "Obst & Gemüse", side: "W", icon: "🥒" },
+            { name: "Paprika", category: "Obst & Gemüse", side: "W", icon: "🫑" },
+            { name: "Melanzani", category: "Obst & Gemüse", side: "W", icon: "🍆" },
+            { name: "Zucchini", category: "Obst & Gemüse", side: "W", icon: "🥒" },
+            { name: "Tomaten", category: "Obst & Gemüse", side: "W", icon: "🍅" },
+            { name: "Cocktailtomaten", category: "Obst & Gemüse", side: "W", icon: "🍅" },
+            // OBST & GEMÜSE (O - Birnen waren O in deiner Liste)
+            { name: "Birnen", category: "Obst & Gemüse", side: "O", icon: "🍐" },
+
+            // BACKWAREN (W)
+            { name: "Brot", category: "Backwaren", side: "W", icon: "🍞" },
+            { name: "Semmeln", category: "Backwaren", side: "W", icon: "🥯" },
+            { name: "Zopf", category: "Backwaren", side: "W", icon: "🍞" },
+            { name: "Wraps", category: "Backwaren", side: "W", icon: "🌯" },
+
+            // VORRAT (O)
+            { name: "Kokosmilch", category: "Vorratsschrank", side: "O", icon: "🥥" },
+            { name: "Walnusskerne", category: "Vorratsschrank", side: "O", icon: "🥜" },
+            { name: "Cashewkerne", category: "Vorratsschrank", side: "O", icon: "🥜" },
+            { name: "Haferflocken grob", category: "Vorratsschrank", side: "O", icon: "🥣" },
+            { name: "Haferflocken fein", category: "Vorratsschrank", side: "O", icon: "🥣" },
+            { name: "Müsli", category: "Vorratsschrank", side: "O", icon: "🥣" },
+            { name: "Toastbrot", category: "Vorratsschrank", side: "O", icon: "🍞" },
+            { name: "Honig", category: "Vorratsschrank", side: "O", icon: "🍯" },
+            { name: "Honig Quetschi", category: "Vorratsschrank", side: "O", icon: "🍯" },
+            { name: "Kirschmarmelade", category: "Vorratsschrank", side: "O", icon: "🍒" },
+            { name: "Marillenmarmelade", category: "Vorratsschrank", side: "O", icon: "🍑" },
+            { name: "Powidelmarmelade", category: "Vorratsschrank", side: "O", icon: "🍯" },
+            { name: "Erdbeermarmelade", category: "Vorratsschrank", side: "O", icon: "🍓" },
+            { name: "Himbeermarmelade", category: "Vorratsschrank", side: "O", icon: "🍓" },
+            { name: "Heidelbeermarmelade", category: "Vorratsschrank", side: "O", icon: "🫐" },
+            { name: "Kräutertee", category: "Vorratsschrank", side: "O", icon: "🍵" },
+            { name: "Früchtetee", category: "Vorratsschrank", side: "O", icon: "🍵" },
+            { name: "Kaffee", category: "Vorratsschrank", side: "O", icon: "☕" },
+            { name: "Weizenvollkornmehl", category: "Vorratsschrank", side: "O", icon: "🌾" },
+            { name: "Roggenmehl", category: "Vorratsschrank", side: "O", icon: "🌾" },
+            { name: "Dinkelmehl", category: "Vorratsschrank", side: "O", icon: "🌾" },
+            { name: "Weizenmehl", category: "Vorratsschrank", side: "O", icon: "🌾" },
+            { name: "Dinkelvollkornmehl", category: "Vorratsschrank", side: "O", icon: "🌾" },
+            { name: "Weizengrieß", category: "Vorratsschrank", side: "O", icon: "🌾" },
+            { name: "Maisgrieß", category: "Vorratsschrank", side: "O", icon: "🌾" },
+            { name: "Zucker", category: "Vorratsschrank", side: "O", icon: "🍚" },
+            { name: "Rohrzucker", category: "Vorratsschrank", side: "O", icon: "🍚" },
+            { name: "Olivenöl", category: "Vorratsschrank", side: "O", icon: "🧴" },
+            { name: "Sonneblumenöl", category: "Vorratsschrank", side: "O", icon: "🧴" },
+            { name: "Rapsöl", category: "Vorratsschrank", side: "O", icon: "🧴" },
+            { name: "Apfelessig", category: "Vorratsschrank", side: "O", icon: "🍾" },
+            { name: "Balsamicoessig", category: "Vorratsschrank", side: "O", icon: "🍾" },
+            { name: "Kochschokolade", category: "Vorratsschrank", side: "O", icon: "🍫" },
+            { name: "Vanillepudding", category: "Vorratsschrank", side: "O", icon: "🍮" },
+            { name: "Schokopudding", category: "Vorratsschrank", side: "O", icon: "🍮" },
+            { name: "Rosinen", category: "Vorratsschrank", side: "O", icon: "🍇" },
+            { name: "Trockenhefe", category: "Vorratsschrank", side: "O", icon: "🍞" },
+            { name: "Vanillezucker", category: "Vorratsschrank", side: "O", icon: "🥡" },
+            { name: "Staubzucker", category: "Vorratsschrank", side: "O", icon: "🍚" },
+            { name: "Knödelbrot", category: "Vorratsschrank", side: "O", icon: "🍞" },
+            { name: "Eier", category: "Vorratsschrank", side: "O", icon: "🥚" },
+            { name: "Salz", category: "Vorratsschrank", side: "O", icon: "🧂" },
+            { name: "Pfeffer", category: "Vorratsschrank", side: "O", icon: "🧂" },
+            { name: "Currypulver", category: "Vorratsschrank", side: "O", icon: "🍛" },
+            { name: "Paprikapulver", category: "Vorratsschrank", side: "O", icon: "🌶️" },
+            { name: "Muskat", category: "Vorratsschrank", side: "O", icon: "🌰" },
+            { name: "Zimt", category: "Vorratsschrank", side: "O", icon: "🪵" },
+            { name: "Gewürze", category: "Vorratsschrank", side: "O", icon: "🌿" },
+            { name: "Tomatenstücke (Dose)", category: "Vorratsschrank", side: "O", icon: "🥫" },
+            { name: "Dosenbohnen", category: "Vorratsschrank", side: "O", icon: "🥫" },
+            { name: "Dosenlinsen", category: "Vorratsschrank", side: "O", icon: "🥫" },
+            { name: "Dosenkichererbsen", category: "Vorratsschrank", side: "O", icon: "🥫" },
+            { name: "Mais im Glas", category: "Vorratsschrank", side: "O", icon: "🌽" },
+            { name: "Tomatensauce", category: "Vorratsschrank", side: "O", icon: "🥫" },
+            { name: "Spaghetti", category: "Vorratsschrank", side: "O", icon: "🍝" },
+            { name: "Vollkornspaghetti", category: "Vorratsschrank", side: "O", icon: "🍝" },
+            { name: "Fussili / Spiralnudeln", category: "Vorratsschrank", side: "O", icon: "🍝" },
+            { name: "Basmatireis / Reis", category: "Vorratsschrank", side: "O", icon: "🍚" },
+
+            // SÜSSIGKEITEN (W)
+            { name: "Müsliriegel", category: "Süßigkeiten", side: "W", icon: "🍫" },
+            { name: "Vollmilchschokolade", category: "Süßigkeiten", side: "W", icon: "🍫" },
+            { name: "Zartbitterschokolade", category: "Süßigkeiten", side: "W", icon: "🍫" },
+            { name: "Chips", category: "Süßigkeiten", side: "W", icon: "🥨" },
+            { name: "Kekse", category: "Süßigkeiten", side: "W", icon: "🍪" },
+            { name: "Gummibärchen", category: "Süßigkeiten", side: "W", icon: "🐻" },
+
+            // GETRÄNKE (O)
+            { name: "Wein", category: "Getränke", side: "O", icon: "🍷" },
+            { name: "Bier", category: "Getränke", side: "O", icon: "🍺" },
+            { name: "Mineralwasser", category: "Getränke", side: "O", icon: "💧" },
+            { name: "Sirup", category: "Getränke", side: "O", icon: "🥤" },
+            { name: "Cola", category: "Getränke", side: "O", icon: "🥤" },
+            { name: "Apfelsaft", category: "Getränke", side: "O", icon: "🧃" },
+
+            // HAUSHALT (O)
+            { name: "Shampoo", category: "Haushalt", side: "O", icon: "🧴" },
+            { name: "Bodylotion", category: "Haushalt", side: "O", icon: "🧴" },
+            { name: "Deo", category: "Haushalt", side: "O", icon: "🧊" },
+            { name: "Taschentücher", category: "Haushalt", side: "O", icon: "🤧" },
+            { name: "Zahnpasta", category: "Haushalt", side: "O", icon: "🪥" },
+            { name: "Zahnbürste", category: "Haushalt", side: "O", icon: "🪥" },
+            { name: "Geschirrspülertabs", category: "Haushalt", side: "O", icon: "🧼" },
+            { name: "Spülmittel", category: "Haushalt", side: "O", icon: "🧼" },
+            { name: "Waschmittel", category: "Haushalt", side: "O", icon: "🧺" },
+            { name: "Klopapier", category: "Haushalt", side: "O", icon: "🧻" },
+            { name: "Küchenrolle", category: "Haushalt", side: "O", icon: "🧻" },
+            { name: "Müllbeutel", category: "Haushalt", side: "O", icon: "🗑️" },
+
+            // KÜHLUNG (O)
+            { name: "Faschiertes", category: "Kühlung", side: "O", icon: "🥩" },
+            { name: "Hühnerfleisch", category: "Kühlung", side: "O", icon: "🍗" },
+            { name: "Hefe", category: "Kühlung", side: "O", icon: "🍞" },
+            { name: "Gnocchi frisch", category: "Kühlung", side: "O", icon: "🥟" },
+            { name: "Käse", category: "Kühlung", side: "O", icon: "🧀" },
+            { name: "Topfen", category: "Kühlung", side: "O", icon: "🥛" },
+            { name: "Frischkäse", category: "Kühlung", side: "O", icon: "🥯" },
+            { name: "Fruchtjoghurt", category: "Kühlung", side: "O", icon: "🥛" },
+            { name: "Joghurt", category: "Kühlung", side: "O", icon: "🥛" },
+            { name: "Sahne", category: "Kühlung", side: "O", icon: "🥛" },
+            { name: "Creme Fraiche", category: "Kühlung", side: "O", icon: "🥛" },
+            { name: "Sauerrahm", category: "Kühlung", side: "O", icon: "🥛" },
+            { name: "Butter", category: "Kühlung", side: "O", icon: "🧈" },
+            { name: "Milch", category: "Kühlung", side: "O", icon: "🥛" },
+
+            // TIEFKÜHL (O)
+            { name: "Vanilleeis", category: "Tiefkühl", side: "O", icon: "🍦" },
+            { name: "Tiefkühlhimbeeren", category: "Tiefkühl", side: "O", icon: "🍒" },
+            { name: "Tiefkühlbeeren", category: "Tiefkühl", side: "O", icon: "🍒" },
+            { name: "Tiefkühlblattspinat", category: "Tiefkühl", side: "O", icon: "🧊" },
+            { name: "Tiefkühlcremespinat", category: "Tiefkühl", side: "O", icon: "🧊" },
+            { name: "Tiefkühlgemüse", category: "Tiefkühl", side: "O", icon: "❄️" },
+            { name: "Tiefkühlpizza", category: "Tiefkühl", side: "O", icon: "🍕" },
+            { name: "Pommes", category: "Tiefkühl", side: "O", icon: "🍟" },
+            { name: "Süßkartoffelpommes", category: "Tiefkühl", side: "O", icon: "🍟" },
+            { name: "Tiefkühlerbsen", category: "Tiefkühl", side: "O", icon: "🫛" },
+            { name: "Tiefkühlkarfiol", category: "Tiefkühl", side: "O", icon: "❄️" },
+            { name: "Tiefkühlbrokkoli", category: "Tiefkühl", side: "O", icon: "🥦" },
+
+            // KASSA
+            { name: "Batterien", category: "Kassa", side: "O", icon: "🔋" }
+        ];
+
+        window.app = {
+            cart: {}, searchTerm: '', activeTab: 'all',
+
+            init: function() {
+                // Echtzeit-Überwachung der Cloud-Daten
+                onValue(dbRef, (snapshot) => {
+                    this.cart = snapshot.val() || {};
+                    this.refreshCurrentView();
+                });
+            },
+
+            saveToCloud: function() {
+                set(dbRef, this.cart);
+            },
+
+            // NEUE FUNKTION: ALLES LÖSCHEN
+            clearCart: function() {
+                if(confirm("Möchtest du wirklich die gesamte Einkaufsliste leeren?")) {
+                    set(dbRef, {}); // Leeres Objekt an Firebase senden
+                }
+            },
+
+            updateQty: function(name, delta) {
+                if (!this.cart[name]) this.cart[name] = { qty: 0, checked: false };
+                this.cart[name].qty += delta;
+                if (this.cart[name].qty <= 0) delete this.cart[name];
+                this.saveToCloud();
+            },
+
+            toggleCheck: function(name) {
+                if (this.cart[name]) {
+                    this.cart[name].checked = !this.cart[name].checked;
+                    this.saveToCloud();
+                }
+            },
+
+            switchTab: function(tab) {
+                this.activeTab = tab;
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.onclick.toString().includes(tab)));
+                document.querySelectorAll('.view-section').forEach(s => s.classList.toggle('active', s.id === 'view-' + tab));
+                
+                // Footer Buttons nur im Tab "Einkaufen" (shop) anzeigen
+                const footer = document.getElementById('shop-footer');
+                if(tab === 'shop') footer.classList.add('visible');
+                else footer.classList.remove('visible');
+
+                this.refreshCurrentView();
+            },
+
+            handleSearch: function() {
+                this.searchTerm = document.getElementById('search-input').value.toLowerCase();
+                this.refreshCurrentView();
+            },
+
+            refreshCurrentView: function() {
+                if (this.activeTab === 'all') this.renderGrid();
+                if (this.activeTab === 'cats') this.renderCats();
+                if (this.activeTab === 'shop') this.renderShop();
+            },
+
+            renderGrid: function() {
+                const filtered = CATALOG.filter(p => p.name.toLowerCase().includes(this.searchTerm));
+                document.getElementById('grid-container').innerHTML = filtered.map(p => this.createCard(p)).join('');
+            },
+
+            renderCats: function() {
+                const container = document.getElementById('cat-list-container');
+                container.innerHTML = '';
+                const cats = [...new Set(CATALOG.map(p => p.category))];
+                cats.forEach(cat => {
+                    const items = CATALOG.filter(p => p.category === cat && p.name.toLowerCase().includes(this.searchTerm));
+                    if (items.length > 0) {
+                        container.innerHTML += `<div class="cat-title">${cat}</div><div class="product-grid">${items.map(p => this.createCard(p)).join('')}</div>`;
+                    }
+                });
+            },
+
+            createCard: function(p) {
+                const qty = this.cart[p.name]?.qty || 0;
+                return `
+                <div class="product-card ${qty > 0 ? 'in-cart' : ''}">
+                    <div onclick="app.updateQty('${p.name}', 1)">
+                        <span class="prod-icon">${p.icon}</span>
+                        <span class="prod-name">${p.name}</span>
+                    </div>
+                    <div class="controls">
+                        <button class="btn-ctrl" onclick="app.updateQty('${p.name}', -1)">-</button>
+                        <span>${qty || ''}</span>
+                        <button class="btn-ctrl btn-plus" onclick="app.updateQty('${p.name}', 1)">+</button>
+                    </div>
+                </div>`;
+            },
+
+            renderShop: function() {
+                const container = document.getElementById('shopping-list-container');
+                const items = CATALOG.filter(p => this.cart[p.name]).map(p => ({...p, ...this.cart[p.name]}));
+                if (items.length === 0) { container.innerHTML = "Liste ist leer."; return; }
+                container.innerHTML = items.map(item => `
+                    <div class="shopping-list-item ${item.checked ? 'checked' : ''}">
+                        <div style="display:flex; align-items:center; gap:10px; width:100%;" onclick="app.toggleCheck('${item.name}')">
+                            <span style="font-size:1.5rem">${item.checked ? '☑️' : '⬜'}</span>
+                            <div style="flex:1">
+                                <span style="display:block; font-weight:bold;">${item.name}</span>
+                                <span style="font-size:0.8rem; color:#666;">${item.side} | ${item.category}</span>
+                            </div>
+                        </div>
+                        <span style="font-weight:bold; font-size:1.2rem;">${item.qty}x</span>
+                    </div>
+                `).join('');
+                this.currentItems = items;
+            },
+
+            exportPDF: function() {
+                if(!this.currentItems || this.currentItems.length === 0) {
+                    alert("Liste ist leer!"); return;
+                }
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                
+                doc.setFontSize(20);
+                doc.text("Einkaufsliste", 10, 15);
+                
+                doc.setFontSize(12);
+                let y = 30;
+                this.currentItems.forEach((item, i) => {
+                    if (y > 280) { doc.addPage(); y = 20; }
+                    doc.text(`[ ]  ${item.qty}x ${item.name} (${item.side})`, 10, y);
+                    y += 10;
+                });
+                doc.save("Einkauf.pdf");
+            }
+        };
+
+        app.init();
+    </script>
+</body>
+</html>
