@@ -151,7 +151,6 @@
         const db = getDatabase(fApp);
         const dbRef = ref(db, 'shared-shopping-list');
 
-        // Die exakte Reihenfolge bleibt hier erhalten!
         const CATALOG = [
             { name: "Erdbeeren", category: "Obst & Gemüse", side: "W", icon: "🍓" },
             { name: "Heidelbeeren", category: "Obst & Gemüse", side: "W", icon: "🫐" },
@@ -323,23 +322,31 @@
                 set(dbRef, this.cart);
             },
 
-            // Alles löschen Funktion
+            // Alles löschen Funktion: Jetzt mit lokalem Sofort-Update
             clearCart: function() {
                 if(confirm("Bist du sicher, dass du die komplette Einkaufsliste löschen möchtest?")) {
+                    this.cart = {}; 
+                    this.refreshCurrentView(); // Sofortiges Update
                     set(dbRef, {}); 
                 }
             },
 
+            // Mengen-Update: Jetzt mit lokalem Sofort-Update
             updateQty: function(name, delta) {
                 if (!this.cart[name]) this.cart[name] = { qty: 0, checked: false };
                 this.cart[name].qty += delta;
                 if (this.cart[name].qty <= 0) delete this.cart[name];
+                
+                this.refreshCurrentView(); // Sofortiges Update!
                 this.saveToCloud();
             },
 
+            // Abhaken: Jetzt mit lokalem Sofort-Update
             toggleCheck: function(name) {
                 if (this.cart[name]) {
                     this.cart[name].checked = !this.cart[name].checked;
+                    
+                    this.refreshCurrentView(); // Sofortiges Update!
                     this.saveToCloud();
                 }
             },
@@ -402,7 +409,6 @@
 
             renderShop: function() {
                 const container = document.getElementById('shopping-list-container');
-                // Erhält exakt die Reihenfolge des CATALOG Arrays
                 const items = CATALOG.filter(p => this.cart[p.name]).map(p => ({...p, ...this.cart[p.name]}));
                 
                 if (items.length === 0) { container.innerHTML = "<p style='text-align:center; color:#888; margin-top:30px;'>Deine Einkaufsliste ist leer.</p>"; return; }
